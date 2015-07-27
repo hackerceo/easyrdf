@@ -1,5 +1,4 @@
 <?php
-namespace EasyRdf;
 
 /**
  * EasyRdf
@@ -43,7 +42,7 @@ namespace EasyRdf;
  * @copyright  Copyright (c) 2009-2014 Nicholas J Humfrey
  * @license    http://www.opensource.org/licenses/bsd-license.php
  */
-class RdfNamespace
+class EasyRdf_Namespace
 {
     /** Namespace registry
      *
@@ -107,6 +106,38 @@ class RdfNamespace
     private static $anonymousNamespaceCount = 0;
 
     /**
+      * User-defined sort function to sort order namespaces by length
+      * This fixes the following bug:
+      *    xmlns:ns0 = "http://example.com/foo/"
+      *    xmlns:ns1 = "http://example.com/foo/bar#"
+      *
+      *   "<ns1:bug>" will expand into 
+      *   "http://example.com/foo/bar#bug" that will shorten into
+      *   "<ns0:bar#bug>" wich is non-compliant XML!!!
+      *
+      * @return <-1,0,1> to sort namespaces using uasort()
+      * 
+      * See https://github.com/njh/easyrdf/issues/115
+      */
+    private static function sortNamespaces($a, $b) {
+        $la = strlen($a);
+        $lb = strlen($b);
+        if ($la == $lb) {
+            // same length, sort where "#" comes before "/"
+            if (substr($a,-1) == '#') {
+                return 1;
+            }
+            if (substr($b,-1) == '#') {
+                return -1;
+            }
+            return 0;
+        } else {
+            // sort by length
+            return $lb - $la;
+        }
+    }
+
+    /**
       * Return all the namespaces registered
       *
       * @return array Associative array of all the namespaces.
@@ -127,26 +158,25 @@ class RdfNamespace
     public static function resetNamespaces()
     {
         self::$namespaces = self::$initial_namespaces;
+        uasort(self::$namespaces, array('self','sortNamespaces'));
     }
 
     /**
       * Return a namespace given its prefix.
       *
       * @param string $prefix The namespace prefix (eg 'foaf')
-      *
-      * @throws \InvalidArgumentException
       * @return string The namespace URI (eg 'http://xmlns.com/foaf/0.1/')
       */
     public static function get($prefix)
     {
         if (!is_string($prefix) or $prefix === null) {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 "\$prefix should be a string and cannot be null or empty"
             );
         }
 
         if (preg_match('/\W/', $prefix)) {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 "\$prefix should only contain alpha-numeric characters"
             );
         }
@@ -166,14 +196,11 @@ class RdfNamespace
       *
       * @param string $prefix The namespace prefix (eg 'foaf')
       * @param string $long The namespace URI (eg 'http://xmlns.com/foaf/0.1/')
-      *
-      * @throws \LogicException
-      * @throws \InvalidArgumentException
       */
     public static function set($prefix, $long)
     {
         if (!is_string($prefix) or $prefix === null) {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 "\$prefix should be a string and cannot be null or empty"
             );
         }
@@ -200,18 +227,18 @@ class RdfNamespace
             $match_result = preg_match($regex, $prefix);
 
             if ($match_result === false) {
-                throw new \LogicException('regexp error');
+                throw new LogicException('regexp error');
             }
 
             if ($match_result === 0) {
-                throw new \InvalidArgumentException(
+                throw new InvalidArgumentException(
                     "\$prefix should match RDFXML-QName specification. got: {$prefix}"
                 );
             }
         }
 
         if (!is_string($long) or $long === null or $long === '') {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 "\$long should be a string and cannot be null or empty"
             );
         }
@@ -221,6 +248,7 @@ class RdfNamespace
         $namespaces = self::namespaces();
         $namespaces[$prefix] = $long;
 
+        uasort($namespaces, array('self','sortNamespaces'));
         self::$namespaces = $namespaces;
     }
 
@@ -244,11 +272,9 @@ class RdfNamespace
       * an already defined namespace.
       *
       * Example:
-      *   EasyRdf\RdfNamespace::setDefault('http://schema.org/');
+      *   EasyRdf_Namespace::setDefault('http://schema.org/');
       *
       * @param string $namespace The URI or prefix of a namespace (eg 'og')
-      *
-      * @throws \InvalidArgumentException
       */
     public static function setDefault($namespace)
     {
@@ -258,7 +284,7 @@ class RdfNamespace
             $namespaces = self::namespaces();
 
             if (!isset($namespaces[$namespace])) {
-                throw new \InvalidArgumentException(
+                throw new InvalidArgumentException(
                     "Unable to set default namespace to unknown prefix: $namespace"
                 );
             }
@@ -273,13 +299,11 @@ class RdfNamespace
       * Delete an existing namespace.
       *
       * @param string $prefix The namespace prefix (eg 'foaf')
-      *
-      * @throws \InvalidArgumentException
       */
     public static function delete($prefix)
     {
         if (!is_string($prefix) or $prefix === null or $prefix === '') {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 "\$prefix should be a string and cannot be null or empty"
             );
         }
@@ -300,6 +324,7 @@ class RdfNamespace
             self::delete('ns'.(self::$anonymousNamespaceCount-1));
             self::$anonymousNamespaceCount--;
         }
+        uasort(self::$namespaces, array('self','sortNamespaces'));
     }
 
     /**
@@ -313,23 +338,21 @@ class RdfNamespace
       *
       * @param string  $uri The full URI (eg 'http://xmlns.com/foaf/0.1/name')
       * @param bool    $createNamespace If true, a new namespace will be created
-      *
-      * @throws \InvalidArgumentException
       * @return array  The split URI (eg 'foaf', 'name') or null
       */
     public static function splitUri($uri, $createNamespace = false)
     {
         if ($uri === null or $uri === '') {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 "\$uri cannot be null or empty"
             );
         }
 
-        if (is_object($uri) and ($uri instanceof Resource)) {
+        if (is_object($uri) and ($uri instanceof EasyRdf_Resource)) {
             $uri = $uri->getUri();
         } elseif (!is_string($uri)) {
-            throw new \InvalidArgumentException(
-                '$uri should be a string or EasyRdf\Resource'
+            throw new InvalidArgumentException(
+                "\$uri should be a string or EasyRdf_Resource"
             );
         }
 
@@ -365,9 +388,8 @@ class RdfNamespace
       * Return the prefix namespace that a URI belongs to.
       *
       * @param string $uri A full URI (eg 'http://xmlns.com/foaf/0.1/name')
-     *
       * @return string The prefix namespace that it is a part of(eg 'foaf')
-      */
+1      */
     public static function prefixOfUri($uri)
     {
         if ($parts = self::splitUri($uri)) {
@@ -386,7 +408,6 @@ class RdfNamespace
       *
       * @param string  $uri The full URI (eg 'http://xmlns.com/foaf/0.1/name')
       * @param bool    $createNamespace If true, a new namespace will be created
-      *
       * @return string The shortened URI (eg 'foaf:name') or null
       */
     public static function shorten($uri, $createNamespace = false)
@@ -403,14 +424,12 @@ class RdfNamespace
       * isn't registered, then the original string will be returned.
       *
       * @param string $shortUri The short URI (eg 'foaf:name')
-      *
-      * @throws \InvalidArgumentException
       * @return string The full URI (eg 'http://xmlns.com/foaf/0.1/name')
       */
     public static function expand($shortUri)
     {
         if (!is_string($shortUri) or $shortUri === '') {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 "\$shortUri should be a string and cannot be null or empty"
             );
         }
